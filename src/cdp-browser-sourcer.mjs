@@ -11,14 +11,31 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function getWebSocketClass() {
+  if (typeof globalThis.WebSocket !== 'undefined') {
+    return globalThis.WebSocket;
+  }
+  try {
+    const wsModule = await import('ws');
+    return wsModule.default || wsModule.WebSocket;
+  } catch (_) {
+    throw new Error('WebSocket is not defined in this environment. Run with Node.js 22+ or install ws: npm install ws');
+  }
+}
+
 function sendCdpCommand(ws, method, params = {}) {
   return new Promise((resolve, reject) => {
     const id = Math.floor(Math.random() * 1000000);
     const handler = (event) => {
       try {
-        const data = JSON.parse(event.data);
+        const raw = typeof event.data === 'string' ? event.data : event.data?.toString?.();
+        const data = JSON.parse(raw);
         if (data.id === id) {
-          ws.removeEventListener('message', handler);
+          if (ws.removeEventListener) {
+            ws.removeEventListener('message', handler);
+          } else if (ws.off) {
+            ws.off('message', handler);
+          }
           if (data.error) {
             reject(new Error(data.error.message));
           } else {
@@ -29,7 +46,11 @@ function sendCdpCommand(ws, method, params = {}) {
         // ignore non-json
       }
     };
-    ws.addEventListener('message', handler);
+    if (ws.addEventListener) {
+      ws.addEventListener('message', handler);
+    } else if (ws.on) {
+      ws.on('message', (msg) => handler({ data: msg }));
+    }
     ws.send(JSON.stringify({ id, method, params }));
   });
 }
@@ -95,10 +116,20 @@ export async function sourceWithLiveChromeAiMode(companyName, port = 9222) {
     throw new Error('Could not attach to Chrome tab via WebSocket debugger URL.');
   }
 
-  const ws = new WebSocket(targetPage.webSocketDebuggerUrl);
+  const WebSocketClass = await getWebSocketClass();
+  const ws = new WebSocketClass(targetPage.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => {
-    ws.onopen = resolve;
-    ws.onerror = reject;
+    if (ws.readyState === 1) return resolve();
+    if (ws.addEventListener) {
+      ws.addEventListener('open', resolve, { once: true });
+      ws.addEventListener('error', reject, { once: true });
+    } else if (ws.once) {
+      ws.once('open', resolve);
+      ws.once('error', reject);
+    } else {
+      ws.onopen = resolve;
+      ws.onerror = reject;
+    }
   });
 
   try {

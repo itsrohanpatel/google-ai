@@ -85,7 +85,7 @@ async function main() {
   }
 
   // Engine Priority 3: Fallback guidance
-  const prompt = `Sapient Wealth founders CEO HR talent acquisition leadership`;
+  const prompt = `${company} founders CEO HR talent acquisition leadership`;
   const aiModeUrl = buildGoogleAIModeUrl(prompt);
 
   console.error(JSON.stringify({
