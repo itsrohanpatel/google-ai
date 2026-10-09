@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "source": "node cli.mjs",
-    "test": "node test/sourcer.test.mjs"
+    "test": "node --test test/sourcer.test.mjs"
   },
   "keywords": [
     "talent-sourcing",

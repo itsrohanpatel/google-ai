@@ -1,0 +1,96 @@
+name: Source Talent Intelligence
+
+on:
+  workflow_dispatch:
+    inputs:
+      company:
+        description: 'Company name to source talent for'
+        required: true
+        type: string
+        default: 'Sapient Wealth'
+
+jobs:
+  source:
+    name: Source Executive & HR Contacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Start Google Chrome in Headless Mode (Port 9222)
+        run: |
+          echo "Starting Chrome with remote debugging on port 9222..."
+          google-chrome \
+            --headless=new \
+            --remote-debugging-port=9222 \
+            --no-sandbox \
+            --disable-gpu \
+            --disable-dev-shm-usage \
+            --window-size=1920,1080 &
+          
+          # Wait up to 15 seconds for CDP endpoint to respond
+          for i in {1..15}; do
+            if curl -s http://127.0.0.1:9222/json/version > /dev/null; then
+              echo "Chrome CDP is ready on port 9222!"
+              curl -s http://127.0.0.1:9222/json/version
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Warning: Chrome CDP did not respond on port 9222. Will fall back to GEMINI_API_KEY if configured."
+
+      - name: Run Talent Sourcer
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          COMPANY="${{ inputs.company }}"
+          echo "Sourcing contacts for: $COMPANY"
+          node cli.mjs "$COMPANY" > result.json
+          cat result.json
+
+      - name: Publish Summary to Job Overview
+        if: always()
+        run: |
+          node -e '
+            import("node:fs").then(fs => {
+              try {
+                if (!fs.existsSync("result.json")) return;
+                const raw = fs.readFileSync("result.json", "utf8");
+                const data = JSON.parse(raw);
+                let md = `## 🎯 Talent Sourcing Results: **${data.company || "${{ inputs.company }}"}**\n\n`;
+                const contacts = data.contacts || [];
+                if (contacts.length) {
+                  md += `Found **${contacts.length}** leadership & talent contacts:\n\n`;
+                  md += `| Full Name | Role / Current Title | LinkedIn | Public Email | Public Phone |\n`;
+                  md += `| :--- | :--- | :--- | :--- | :--- |\n`;
+                  for (const c of contacts) {
+                    const li = c.linkedinUrl && c.linkedinUrl.startsWith("http") ? `[LinkedIn Profile](${c.linkedinUrl})` : c.linkedinUrl;
+                    md += `| **${c.fullName || "-"}** | ${c.currentTitle || "-"} | ${li || "-"} | \`${c.publicEmail || "-"}\` | \`${c.publicPhone || "-"}\` |\n`;
+                  }
+                } else {
+                  md += `_No contacts parsed directly into table. Raw output preserved in artifact._\n`;
+                }
+                if (process.env.GITHUB_STEP_SUMMARY) {
+                  fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
+                }
+              } catch (err) {
+                if (process.env.GITHUB_STEP_SUMMARY && fs.existsSync("result.json")) {
+                  fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "### Raw Result\n```json\n" + fs.readFileSync("result.json", "utf8") + "\n```");
+                }
+              }
+            });
+          '
+
+      - name: Upload Sourcing JSON Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sourcing-result-${{ github.run_id }}
+          path: result.json
+          retention-days: 7
