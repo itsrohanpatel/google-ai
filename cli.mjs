@@ -54,8 +54,16 @@ async function main() {
     process.stderr.write(`🔍 Searching live web & LinkedIn for "${company}" via Chrome Google AI Mode (udm=50)...\n`);
     try {
       const cdpResult = await sourceWithLiveChromeAiMode(company, 9222);
-      console.log(JSON.stringify(cdpResult, null, 2));
-      return;
+      if (cdpResult.contacts && cdpResult.contacts.length > 0) {
+        console.log(JSON.stringify(cdpResult, null, 2));
+        return;
+      }
+      if (apiKey) {
+        process.stderr.write(`⚠️ Chrome CDP returned 0 contacts for "${company}". Attempting Gemini Search Grounding...\n`);
+      } else {
+        console.log(JSON.stringify(cdpResult, null, 2));
+        return;
+      }
     } catch (cdpErr) {
       process.stderr.write(`⚠️ Chrome CDP extraction warning: ${cdpErr.message}. Trying API fallback...\n`);
     }
@@ -90,10 +98,10 @@ async function main() {
 
   console.error(JSON.stringify({
     status: "AI_MODE_REQUIRES_CONNECTION",
-    message: "Could not connect to Chrome on port 9222 and no GEMINI_API_KEY was provided.",
+    message: "Google Search flagged the network IP (CAPTCHA/bot check) or Chrome was unavailable, and no GEMINI_API_KEY was provided.",
     quickStart: [
-      "1. Make sure Chrome is open with remote debugging enabled (--remote-debugging-port=9222)",
-      "2. OR run with a free Gemini key: node cli.mjs \"" + company + "\" --key=YOUR_API_KEY"
+      "1. Locally: Keep Chrome open with remote debugging (--remote-debugging-port=9222) where you have active sessions",
+      "2. In GitHub Actions / Cloud: Add a free GEMINI_API_KEY in repository Secrets (Settings > Secrets and variables > Actions > Repository secrets). Free keys include 1,500 daily requests at https://aistudio.google.com/app/apikey"
     ],
     interactiveAiModeUrl: aiModeUrl
   }, null, 2));

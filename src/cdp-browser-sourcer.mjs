@@ -147,6 +147,16 @@ export async function sourceWithLiveChromeAiMode(companyName, port = 9222) {
       await sleep(1500);
     }
 
+    // Check if Google triggered a bot challenge / CAPTCHA on cloud IP
+    if (
+      fullText.includes('unusual traffic') ||
+      fullText.includes('not a robot') ||
+      fullText.includes('solving the above reCAPTCHA') ||
+      fullText.includes('/sorry/index')
+    ) {
+      throw new Error('Google flagged network IP as automated traffic (CAPTCHA / bot check).');
+    }
+
     // 3. Extract all links and anchors from the AI page
     const linksRes = await sendCdpCommand(ws, 'Runtime.evaluate', {
       expression: `
